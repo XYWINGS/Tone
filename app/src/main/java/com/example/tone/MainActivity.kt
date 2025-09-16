@@ -3,12 +3,14 @@ package com.example.tone
 import android.Manifest
 import android.content.pm.PackageManager
 import android.media.MediaPlayer
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.widget.ImageButton
 import android.widget.SeekBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -36,12 +38,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private var songsList = mutableListOf<Song>()
+    private var currentSongIndex = 0
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
         initializeViews()
-        setupMediaPlayer()
         checkPermissions()
     }
 
@@ -71,36 +75,57 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    private fun setupMediaPlayer() {
-        mediaPlayer = MediaPlayer()
-        //sample music file
-        val assetFileDescriptor = resources.openRawResourceFd(R.raw.bns)
-        mediaPlayer.setDataSource(
-            assetFileDescriptor.fileDescriptor,
-            assetFileDescriptor.startOffset,
-            assetFileDescriptor.length
-        )
-        assetFileDescriptor.close()
+    private fun loadSongs() {
+        songsList = MusicLoader.getAllAudioFromDevice(this).toMutableList()
+        println("song listis $songsList")
 
-        mediaPlayer.prepareAsync()
-        mediaPlayer.setOnPreparedListener {
-            seekBar.max = mediaPlayer.duration
-            totalTime.text = formatTime(mediaPlayer.duration)
-            updateSongInfo("Sample Song", "Sample Artist")
+        if (songsList.isNotEmpty()) {
+            setupMediaPlayer(songsList[0])
+        } else {
+            Toast.makeText(this, "No songs found on device", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun setupMediaPlayer(song: Song) {
+        if (::mediaPlayer.isInitialized) {
+            mediaPlayer.reset()
+        } else {
+            mediaPlayer = MediaPlayer()
         }
 
-        mediaPlayer.setOnCompletionListener {
-            btnPlayPause.setImageResource(R.drawable.ic_play)
-            handler.removeCallbacks(updateSeekBar)
+        try {
+            mediaPlayer.setDataSource(song.path)
+            mediaPlayer.prepareAsync()
+
+            mediaPlayer.setOnPreparedListener {
+                seekBar.max = mediaPlayer.duration
+                totalTime.text = formatTime(mediaPlayer.duration)
+                updateSongInfo(song.title, song.artist)
+
+                // Load album art using a library like Glide or Picasso
+                // For simplicity, we're just setting text for now
+            }
+
+            mediaPlayer.setOnCompletionListener {
+                playNext()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(this, "Error playing song", Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun togglePlayPause() {
-        if (mediaPlayer.isPlaying) {
+        if (songsList.isEmpty()) return
+
+        if (::mediaPlayer.isInitialized && mediaPlayer.isPlaying) {
             mediaPlayer.pause()
             btnPlayPause.setImageResource(R.drawable.ic_play)
             handler.removeCallbacks(updateSeekBar)
         } else {
+            if (!::mediaPlayer.isInitialized) {
+                setupMediaPlayer(songsList[currentSongIndex])
+            }
             mediaPlayer.start()
             btnPlayPause.setImageResource(R.drawable.ic_pause)
             handler.post(updateSeekBar)
@@ -108,18 +133,32 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun playPrevious() {
-        // Implement previous track logic
-        mediaPlayer.seekTo(0)
-        if (!mediaPlayer.isPlaying) {
-            togglePlayPause()
+        if (songsList.isEmpty()) return
+
+        currentSongIndex--
+        if (currentSongIndex < 0) {
+            currentSongIndex = songsList.size - 1
+        }
+
+        setupMediaPlayer(songsList[currentSongIndex])
+        if (::mediaPlayer.isInitialized && mediaPlayer.isPlaying) {
+            mediaPlayer.start()
+            handler.post(updateSeekBar)
         }
     }
 
     private fun playNext() {
-        // Implement next track logic
-        mediaPlayer.seekTo(0)
-        if (!mediaPlayer.isPlaying) {
-            togglePlayPause()
+        if (songsList.isEmpty()) return
+
+        currentSongIndex++
+        if (currentSongIndex >= songsList.size) {
+            currentSongIndex = 0
+        }
+
+        setupMediaPlayer(songsList[currentSongIndex])
+        if (::mediaPlayer.isInitialized && mediaPlayer.isPlaying) {
+            mediaPlayer.start()
+            handler.post(updateSeekBar)
         }
     }
 
@@ -135,16 +174,50 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkPermissions() {
-        if (ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.READ_EXTERNAL_STORAGE
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE),
-                1
-            )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.READ_MEDIA_AUDIO
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.READ_MEDIA_AUDIO),
+                    1
+                )
+            } else {
+                loadSongs()
+            }
+        } else {
+            if (ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.READ_EXTERNAL_STORAGE
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE),
+                    1
+                )
+            } else {
+                loadSongs()
+            }
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        if (requestCode == 1) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                loadSongs()
+            } else {
+                Toast.makeText(this, "Permission denied. Cannot load music.", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
