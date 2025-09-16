@@ -1,6 +1,7 @@
 package com.example.tone
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.MediaPlayer
 import android.os.Build
@@ -22,6 +23,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnPlayPause: ImageButton
     private lateinit var btnPrevious: ImageButton
     private lateinit var btnNext: ImageButton
+    private lateinit var btnSelectFolders: ImageButton
     private lateinit var currentTime: TextView
     private lateinit var totalTime: TextView
     private lateinit var songTitle: TextView
@@ -40,6 +42,7 @@ class MainActivity : AppCompatActivity() {
 
     private var songsList = mutableListOf<Song>()
     private var currentSongIndex = 0
+    private var selectedFolders: List<String> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,6 +57,7 @@ class MainActivity : AppCompatActivity() {
         btnPlayPause = findViewById(R.id.btnPlayPause)
         btnPrevious = findViewById(R.id.btnPrevious)
         btnNext = findViewById(R.id.btnNext)
+        btnSelectFolders = findViewById(R.id.btnSelectFolders)
         currentTime = findViewById(R.id.currentTime)
         totalTime = findViewById(R.id.totalTime)
         songTitle = findViewById(R.id.songTitle)
@@ -62,6 +66,7 @@ class MainActivity : AppCompatActivity() {
         btnPlayPause.setOnClickListener { togglePlayPause() }
         btnPrevious.setOnClickListener { playPrevious() }
         btnNext.setOnClickListener { playNext() }
+        btnSelectFolders.setOnClickListener { openFolderSelection() }
 
         seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
@@ -76,13 +81,38 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadSongs() {
-        songsList = MusicLoader.getAllAudioFromDevice(this).toMutableList()
-        println("song listis $songsList")
+        songsList.clear()
+
+        if (selectedFolders.isNotEmpty()) {
+            // Load songs from selected folders
+            for (folder in selectedFolders) {
+                val folderSongs = MusicLoader.getAllAudioFromDevice(this, folder)
+                songsList.addAll(folderSongs)
+            }
+        } else {
+            // Load all songs if no specific folders selected
+            songsList = MusicLoader.getAllAudioFromDevice(this).toMutableList()
+        }
 
         if (songsList.isNotEmpty()) {
             setupMediaPlayer(songsList[0])
+            Toast.makeText(this, "Found ${songsList.size} songs", Toast.LENGTH_SHORT).show()
         } else {
-            Toast.makeText(this, "No songs found on device", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "No songs found. Click the folder icon to select music folders.", Toast.LENGTH_LONG).show()
+            // Don't auto-open folder selection, just show message
+        }
+    }
+
+    private fun openFolderSelection() {
+        val intent = Intent(this, FolderSelectionActivity::class.java)
+        startActivityForResult(intent, FOLDER_SELECTION_REQUEST)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == FOLDER_SELECTION_REQUEST && resultCode == RESULT_OK) {
+            selectedFolders = data?.getStringArrayListExtra("selectedFolders") ?: emptyList()
+            loadSongs() // Reload songs with new folder selection
         }
     }
 
@@ -101,22 +131,27 @@ class MainActivity : AppCompatActivity() {
                 seekBar.max = mediaPlayer.duration
                 totalTime.text = formatTime(mediaPlayer.duration)
                 updateSongInfo(song.title, song.artist)
-
-                // Load album art using a library like Glide or Picasso
-                // For simplicity, we're just setting text for now
             }
 
             mediaPlayer.setOnCompletionListener {
                 playNext()
             }
+
+            mediaPlayer.setOnErrorListener { mp, what, extra ->
+                Toast.makeText(this, "Error playing: ${song.title}", Toast.LENGTH_SHORT).show()
+                false
+            }
         } catch (e: Exception) {
             e.printStackTrace()
-            Toast.makeText(this, "Error playing song", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Error playing: ${song.title}", Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun togglePlayPause() {
-        if (songsList.isEmpty()) return
+        if (songsList.isEmpty()) {
+            Toast.makeText(this, "No songs available. Select folders first.", Toast.LENGTH_SHORT).show()
+            return
+        }
 
         if (::mediaPlayer.isInitialized && mediaPlayer.isPlaying) {
             mediaPlayer.pause()
@@ -141,7 +176,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         setupMediaPlayer(songsList[currentSongIndex])
-        if (::mediaPlayer.isInitialized && mediaPlayer.isPlaying) {
+        if (::mediaPlayer.isInitialized) {
             mediaPlayer.start()
             handler.post(updateSeekBar)
         }
@@ -156,7 +191,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         setupMediaPlayer(songsList[currentSongIndex])
-        if (::mediaPlayer.isInitialized && mediaPlayer.isPlaying) {
+        if (::mediaPlayer.isInitialized) {
             mediaPlayer.start()
             handler.post(updateSeekBar)
         }
@@ -227,5 +262,9 @@ class MainActivity : AppCompatActivity() {
         if (::mediaPlayer.isInitialized) {
             mediaPlayer.release()
         }
+    }
+
+    companion object {
+        private const val FOLDER_SELECTION_REQUEST = 100
     }
 }
