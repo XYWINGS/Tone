@@ -7,6 +7,7 @@ import android.database.Cursor
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.Log
 import java.io.File
 
 object MusicLoader {
@@ -121,6 +122,7 @@ object MusicLoader {
         }
 
         // Add common music folders if none found
+        // Add common music folders if none found
         if (folders.isEmpty()) {
             val commonFolders = listOf(
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC).absolutePath,
@@ -132,13 +134,46 @@ object MusicLoader {
                 "/storage/emulated/0/Download"
             )
 
+            val audioExtensions = listOf("mp3", "wav", "m4a", "flac", "ogg", "aac")
+
             commonFolders.forEach { folderPath ->
                 val folder = File(folderPath)
                 if (folder.exists() && folder.isDirectory) {
+                    // Add folder path
                     folders.add(folderPath)
+
+                    // Scan for audio files inside
+                    folder.listFiles()?.forEach { file ->
+                        if (file.isFile) {
+                            val ext = file.extension.lowercase()
+                            if (ext in audioExtensions) {
+                                Log.d("AudioScanner", "Found audio: ${file.absolutePath}")
+                                // audioFiles.add(file.absolutePath)
+                            }
+                        }
+                    }
                 }
             }
         }
+
+//        if (folders.isEmpty()) {
+//            val commonFolders = listOf(
+//                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC).absolutePath,
+//                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath,
+//                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS).absolutePath,
+//                "/sdcard/Music",
+//                "/sdcard/Download",
+//                "/storage/emulated/0/Music",
+//                "/storage/emulated/0/Download"
+//            )
+//
+//            commonFolders.forEach { folderPath ->
+//                val folder = File(folderPath)
+//                if (folder.exists() && folder.isDirectory) {
+//                    folders.add(folderPath)
+//                }
+//            }
+//        }
 
         return folders.toList().sorted()
     }
